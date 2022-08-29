@@ -41,6 +41,7 @@ const { base_presets } = Me.imports.base_presets;
 const { color_mappings } = Me.imports.color_mappings;
 
 const EXTENSIONDIR = Me.dir.get_path();
+const SHELLBUILDDIR = EXTENSIONDIR + "/build"
 
 class Extension {
     constructor(uuid) {
@@ -90,14 +91,14 @@ function init(meta) {
     return new Extension(meta.uuid);
 }
 
-function apply_theme(base_presets, color_mappings, notify=false) {
+function apply_theme(base_presets, color_mappings, notify = false) {
     // Get prefs
     const settings = ExtensionUtils.getSettings(PREFS_SCHEMA);
     let shell_settings = null;
     let warn_shell_theme = false;
     try {
         shell_settings = ExtensionUtils.getSettings(SHELL_SCHEMA);
-    } catch(e) {
+    } catch (e) {
         log(e);
         warn_shell_theme = true;
     }
@@ -105,7 +106,7 @@ function apply_theme(base_presets, color_mappings, notify=false) {
     const show_notifications = settings.get_boolean("show-notifications");
     const height = settings.get_int("resize-height");
     const width = settings.get_int("resize-width");
-    let size = {height: height, width: width};
+    let size = { height: height, width: width };
     let color_mappings_sel = color_mappings[color_scheme.toLowerCase()];
 
     // Checking dark theme preference
@@ -164,13 +165,21 @@ function apply_theme(base_presets, color_mappings, notify=false) {
     write_str(css, config_path + "/gtk-3.0/gtk.css");
 
     if (ext_utils.check_npm()) {
-        modify_colors(EXTENSIONDIR + '/shell/42/gnome-shell-sass/_colors.txt',
-            EXTENSIONDIR + '/shell/42/gnome-shell-sass/_colors.scss',
+        const source_shell_scss = Gio.File.new_for_path(EXTENSIONDIR + "/shell/");
+        const target_shell_scss = Gio.File.new_for_path(SHELLBUILDDIR + "/shell/");
+
+        source_shell_scss.copy(target_shell_scss, Gio.FileCopyFlags.NONE, null, null);
+
+        modify_colors(SHELLBUILDDIR + '/shell/42/gnome-shell-sass/_colors.txt',
+            SHELLBUILDDIR + '/shell/42/gnome-shell-sass/_colors.scss',
             map_colors(color_mappings_sel.dark, base_presets.dark, theme.schemes.dark.props).variables
         );
+
+        modify_svg(SHELLBUILDDIR + '/shell/42/', color_mappings_sel.dark)
+
         create_dir_sync(GLib.get_home_dir() + '/.local/share/themes/MaterialYou');
         create_dir_sync(GLib.get_home_dir() + '/.local/share/themes/MaterialYou/gnome-shell');
-        compile_sass(EXTENSIONDIR + '/shell/42/gnome-shell.scss',
+        compile_sass(SHELLBUILDDIR + 'shell/42/gnome-shell.scss',
             GLib.get_home_dir() + '/.local/share/themes/MaterialYou/gnome-shell/gnome-shell.css',
             shell_settings);
     }
@@ -227,7 +236,7 @@ function create_dir_sync(path) {
     // Synchronous, blocking method
     try {
         file.make_directory(null);
-    } catch(e) {
+    } catch (e) {
         log(e);
     }
 }
@@ -280,7 +289,7 @@ async function write_str(str, path) {
 function write_str_sync(str, path) {
     const file = Gio.File.new_for_path(path);
     const [, etag] = file.replace_contents(str, null, false,
-    Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        Gio.FileCreateFlags.REPLACE_DESTINATION, null);
 }
 
 function read_file(path) {
@@ -298,6 +307,18 @@ function modify_colors(scss_path, output_path, vars) {
         colors_template = colors_template.replace("{{" + key + "}}", vars[key]);
     }
     write_str_sync(colors_template, output_path);
+}
+
+function modify_svg(shell_path, color) {
+    for (const svg of ["toggle-on.svg", "toggle-on-light.svg", "toggle-on-hc.svg", "checkbox.svg", "checkbox-focused.svg"]) {
+        let svg_file = Gio.File.new_for_path(shell_path + "/" + svg);
+        let [, contents, etag] = file.load_contents(null);
+        let ByteArray = imports.byteArray;
+        let contentsString = ByteArray.toString(contents);
+        contentsString.replace("$MY_THEME", color)
+        let [, etag2] = svg_file.replace_contents(contentsString, null, false,
+            Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+    }
 }
 
 function compile_sass(scss_path, output_path, shell_settings) {
